@@ -172,11 +172,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('single asset with no debt', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const value = ether('1');
       const params = _getFlashloanParams(
         [this.hMock.address],
@@ -212,8 +207,8 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('single asset with stable rate by borrowing from itself', async function () {
-      if (chainId == 137) {
-        // Stable Rate borrow is not available on Polygon.
+      if (chainId == 1 || chainId == 137) {
+        // Stable Rate borrow is not available on Ethereum and Polygon.
         return;
       }
       const value = ether('1');
@@ -260,11 +255,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('single asset with variable rate by borrowing from itself', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       // Get flashloan params
       const value = ether('1');
       const params = _getFlashloanParams(
@@ -315,11 +305,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('multiple assets with no debt', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const value = ether('1');
       const params = _getFlashloanParams(
         [this.hMock.address],
@@ -441,37 +426,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
       );
     });
 
-    it('should revert: collateral same as borrowing currency', async function () {
-      if (chainId == 137) {
-        // Stable Rate borrow is not available on Polygon and
-        // variable rate doesn't check collateral and debt. so skip this test.
-        return;
-      }
-      const value = ether('1');
-      const params = _getFlashloanParams(
-        [this.hMock.address],
-        [ZERO_BYTES32],
-        [this.faucet.address],
-        [this.tokenB.address],
-        [value]
-      );
-
-      const to = this.hAaveV2.address;
-      const data = _getFlashloanCubeData(
-        [this.tokenB.address], // assets
-        [value], // amounts
-        [AAVE_RATEMODE.STABLE], // modes
-        params
-      );
-      await expectRevert(
-        this.proxy.execMock(to, data, {
-          from: user,
-          value: ether('0.1'),
-        }),
-        'AaveProtocolV2_flashLoan: 13' // aave v2 VL_COLLATERAL_SAME_AS_BORROWING_CURRENCY error code = 13
-      );
-    });
-
     it('should revert: unsupported token', async function () {
       const value = ether('1');
       const params = _getFlashloanParams(
@@ -513,11 +467,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('sequential', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const value = ether('1');
       // Setup 1st flashloan cube
       const params1 = _getFlashloanParams(
@@ -583,11 +532,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('nested', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       // Get flashloan params
       const value = ether('1');
       const params1 = _getFlashloanParams(
@@ -729,11 +673,6 @@ contract('AaveV2 flashloan', function ([_, user, someone]) {
     });
 
     it('deposit aaveV2 after flashloan', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       // Get flashloan params
       const value = ether('1');
       const depositValue = ether('0.5');

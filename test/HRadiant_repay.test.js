@@ -1,5 +1,5 @@
 const chainId = network.config.chainId;
-if (chainId == 250) {
+if (chainId == 1 || chainId == 42161) {
   // This test supports to run on these chains.
 } else {
   return;
@@ -18,10 +18,12 @@ const utils = web3.utils;
 const { expect } = require('chai');
 
 const {
-  DAI_TOKEN,
-  GEIST_LENDING_POOL_PROVIDER,
+  USDC_TOKEN,
+  RUSDC_TOKEN,
+  RADIANT_PROVIDER,
   AAVE_RATEMODE,
   WRAPPED_NATIVE_TOKEN,
+  RWRAPPED_NATIVE_DEBT_VARIABLE,
 } = require('./utils/constants');
 const {
   evmRevert,
@@ -30,9 +32,10 @@ const {
   getHandlerReturn,
   getTokenProvider,
   expectEqWithinBps,
+  mwei,
 } = require('./utils/utils');
 
-const HGeist = artifacts.require('HGeist');
+const HRadiant = artifacts.require('HRadiant');
 const FeeRuleRegistry = artifacts.require('FeeRuleRegistry');
 const Registry = artifacts.require('Registry');
 const Proxy = artifacts.require('ProxyMock');
@@ -42,8 +45,9 @@ const ILendingPool = artifacts.require('ILendingPoolV2');
 const IProvider = artifacts.require('ILendingPoolAddressesProviderV2');
 const SimpleToken = artifacts.require('SimpleToken');
 
-contract('Geist', function ([_, user]) {
-  const tokenAddress = DAI_TOKEN;
+contract('Radiant Repay', function ([_, user]) {
+  const aTokenAddress = RUSDC_TOKEN;
+  const tokenAddress = USDC_TOKEN;
 
   let id;
   let balanceUser;
@@ -58,24 +62,16 @@ contract('Geist', function ([_, user]) {
       this.registry.address,
       this.feeRuleRegistry.address
     );
-    this.hGeist = await HGeist.new(
-      WRAPPED_NATIVE_TOKEN,
-      GEIST_LENDING_POOL_PROVIDER,
-      0
-    );
+    this.hRadiant = await HRadiant.new(WRAPPED_NATIVE_TOKEN, RADIANT_PROVIDER);
     await this.registry.register(
-      this.hGeist.address,
-      utils.asciiToHex('Geist')
+      this.hRadiant.address,
+      utils.asciiToHex('Radiant')
     );
-    this.provider = await IProvider.at(GEIST_LENDING_POOL_PROVIDER);
+    this.provider = await IProvider.at(RADIANT_PROVIDER);
     this.lendingPoolAddress = await this.provider.getLendingPool.call();
     this.lendingPool = await ILendingPool.at(this.lendingPoolAddress);
     this.token = await IToken.at(tokenAddress);
-    this.gToken = await IAToken.at(
-      (
-        await this.lendingPool.getReserveData.call(tokenAddress)
-      ).aTokenAddress
-    );
+    this.aToken = await IAToken.at(aTokenAddress);
     this.mockToken = await SimpleToken.new();
   });
 
@@ -90,21 +86,19 @@ contract('Geist', function ([_, user]) {
   });
 
   describe('Repay Variable Rate', function () {
-    var depositAmount = ether('10000');
-    const borrowAmount = ether('1');
+    var depositAmount = mwei('1000');
+    const borrowAmount = mwei('0.1');
     const borrowTokenAddr = WRAPPED_NATIVE_TOKEN;
     const rateMode = AAVE_RATEMODE.VARIABLE;
+    const debtTokenAddr = RWRAPPED_NATIVE_DEBT_VARIABLE;
 
     let borrowTokenProvider;
+
     before(async function () {
       borrowTokenProvider = await getTokenProvider(borrowTokenAddr);
 
       this.borrowToken = await IToken.at(borrowTokenAddr);
-      this.debtToken = await IToken.at(
-        (
-          await this.lendingPool.getReserveData.call(borrowTokenAddr)
-        ).variableDebtTokenAddress
-      );
+      this.debtToken = await IToken.at(debtTokenAddr);
     });
 
     beforeEach(async function () {
@@ -112,6 +106,7 @@ contract('Geist', function ([_, user]) {
       await this.token.approve(this.lendingPool.address, depositAmount, {
         from: providerAddress,
       });
+
       await this.lendingPool.deposit(
         this.token.address,
         depositAmount,
@@ -119,7 +114,7 @@ contract('Geist', function ([_, user]) {
         0,
         { from: providerAddress }
       );
-      depositAmount = await this.gToken.balanceOf.call(user);
+      depositAmount = await this.aToken.balanceOf.call(user);
 
       // Borrow
       await this.lendingPool.borrow(
@@ -142,7 +137,7 @@ contract('Geist', function ([_, user]) {
 
     it('partial', async function () {
       const value = borrowAmount.div(new BN('2'));
-      const to = this.hGeist.address;
+      const to = this.hRadiant.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.borrowToken.address,
@@ -156,7 +151,6 @@ contract('Geist', function ([_, user]) {
       await this.proxy.updateTokenMock(this.borrowToken.address);
       await balanceUser.get();
 
-      const debtTokenUserBefore = await this.debtToken.balanceOf.call(user);
       const receipt = await this.proxy.execMock(to, data, {
         from: user,
         value: ether('0.1'),
@@ -198,7 +192,7 @@ contract('Geist', function ([_, user]) {
 
     it('partial by ETH', async function () {
       const value = borrowAmount.div(new BN('2'));
-      const to = this.hGeist.address;
+      const to = this.hRadiant.address;
       const data = abi.simpleEncode(
         'repayETH(uint256,uint256,address)',
         value,
@@ -206,7 +200,6 @@ contract('Geist', function ([_, user]) {
         user
       );
       await balanceUser.get();
-      const debtTokenUserBefore = await this.debtToken.balanceOf.call(user);
       const receipt = await this.proxy.execMock(to, data, {
         from: user,
         value: value,
@@ -247,9 +240,9 @@ contract('Geist', function ([_, user]) {
     });
 
     it('whole', async function () {
-      const extraNeed = ether('1');
+      const extraNeed = mwei('1');
       const value = borrowAmount.add(extraNeed);
-      const to = this.hGeist.address;
+      const to = this.hRadiant.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.borrowToken.address,
@@ -297,9 +290,9 @@ contract('Geist', function ([_, user]) {
     });
 
     it('whole by ETH', async function () {
-      const extraNeed = ether('1');
+      const extraNeed = mwei('1');
       const value = borrowAmount.add(extraNeed);
-      const to = this.hGeist.address;
+      const to = this.hRadiant.address;
       const data = abi.simpleEncode(
         'repayETH(uint256,uint256,address)',
         value,
@@ -339,8 +332,8 @@ contract('Geist', function ([_, user]) {
     });
 
     it('should revert: not enough balance', async function () {
-      const value = ether('0.5');
-      const to = this.hGeist.address;
+      const value = mwei('0.05');
+      const to = this.hRadiant.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.borrowToken.address,
@@ -350,19 +343,27 @@ contract('Geist', function ([_, user]) {
       );
       await this.borrowToken.transfer(
         this.proxy.address,
-        value.sub(ether('0.1')),
+        value.sub(mwei('0.01')),
         { from: user }
       );
       await this.proxy.updateTokenMock(this.borrowToken.address);
-      await expectRevert(
-        this.proxy.execMock(to, data, { from: user }),
-        'HGeist_repay: SafeERC20: low-level call failed'
-      );
+
+      if (chainId == 1) {
+        await expectRevert(
+          this.proxy.execMock(to, data, { from: user }),
+          'HRadiant_repay: SafeERC20: low-level call failed'
+        );
+      } else {
+        await expectRevert(
+          this.proxy.execMock(to, data, { from: user }),
+          'HRadiant_repay: ERC20: transfer amount exceeds balance'
+        );
+      }
     });
 
     it('should revert: unsupported token', async function () {
-      const value = ether('0.5');
-      const to = this.hGeist.address;
+      const value = mwei('0.5');
+      const to = this.hRadiant.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.mockToken.address,
@@ -374,13 +375,13 @@ contract('Geist', function ([_, user]) {
       await this.proxy.updateTokenMock(this.mockToken.address);
       await expectRevert(
         this.proxy.execMock(to, data, { from: user }),
-        'HGeist_repay: Unspecified'
+        'HRadiant_repay: Unspecified'
       );
     });
 
     it('should revert: wrong rate mode', async function () {
-      const value = ether('0.5');
-      const to = this.hGeist.address;
+      const value = mwei('0.05');
+      const to = this.hRadiant.address;
       const unborrowedRateMode = (rateMode % 2) + 1;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
@@ -395,7 +396,7 @@ contract('Geist', function ([_, user]) {
       await this.proxy.updateTokenMock(this.borrowToken.address);
       await expectRevert(
         this.proxy.execMock(to, data, { from: user }),
-        'HGeist_repay: 15'
+        'HRadiant_repay: 15'
       );
     });
   });

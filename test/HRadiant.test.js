@@ -1,5 +1,5 @@
 const chainId = network.config.chainId;
-if (chainId == 1 || chainId == 137) {
+if (chainId == 1 || chainId == 42161) {
   // This test supports to run on these chains.
 } else {
   return;
@@ -15,18 +15,17 @@ const {
 } = require('@openzeppelin/test-helpers');
 const { MAX_UINT256 } = constants;
 const { tracker } = balance;
-const { latest } = time;
 const abi = require('ethereumjs-abi');
 const utils = web3.utils;
 
 const { expect } = require('chai');
 
 const {
-  DAI_TOKEN,
-  ADAI_V2,
-  AAVEPROTOCOL_V2_PROVIDER,
+  USDC_TOKEN,
+  RUSDC_TOKEN,
+  RADIANT_PROVIDER,
   WRAPPED_NATIVE_TOKEN,
-  AWRAPPED_NATIVE_V2_TOKEN,
+  RWRAPPED_NATIVE_TOKEN,
 } = require('./utils/constants');
 const {
   evmRevert,
@@ -36,9 +35,10 @@ const {
   mulPercent,
   expectEqWithinBps,
   getTokenProvider,
+  mwei,
 } = require('./utils/utils');
 
-const HAaveV2 = artifacts.require('HAaveProtocolV2');
+const HRadiant = artifacts.require('HRadiant');
 const FeeRuleRegistry = artifacts.require('FeeRuleRegistry');
 const Registry = artifacts.require('Registry');
 const Proxy = artifacts.require('ProxyMock');
@@ -48,10 +48,10 @@ const ILendingPool = artifacts.require('ILendingPoolV2');
 const IProvider = artifacts.require('ILendingPoolAddressesProviderV2');
 const SimpleToken = artifacts.require('SimpleToken');
 
-contract('Aave V2', function ([_, user]) {
-  const aTokenAddress = ADAI_V2;
-  const tokenAddress = DAI_TOKEN;
-  const aWrappedNativeTokenAddress = AWRAPPED_NATIVE_V2_TOKEN;
+contract('Radiant', function ([_, user]) {
+  const aTokenAddress = RUSDC_TOKEN;
+  const tokenAddress = USDC_TOKEN;
+  const aWrappedNativeTokenAddress = RWRAPPED_NATIVE_TOKEN;
   const wrappedNativeTokenAddress = WRAPPED_NATIVE_TOKEN;
   const ATOKEN_DUST = ether('0.00001');
 
@@ -71,15 +71,12 @@ contract('Aave V2', function ([_, user]) {
       this.registry.address,
       this.feeRuleRegistry.address
     );
-    this.hAaveV2 = await HAaveV2.new(
-      WRAPPED_NATIVE_TOKEN,
-      AAVEPROTOCOL_V2_PROVIDER
-    );
+    this.hRadiant = await HRadiant.new(WRAPPED_NATIVE_TOKEN, RADIANT_PROVIDER);
     await this.registry.register(
-      this.hAaveV2.address,
-      utils.asciiToHex('AaveProtocolV2')
+      this.hRadiant.address,
+      utils.asciiToHex('HRadiant')
     );
-    this.provider = await IProvider.at(AAVEPROTOCOL_V2_PROVIDER);
+    this.provider = await IProvider.at(RADIANT_PROVIDER);
     this.lendingPoolAddress = await this.provider.getLendingPool.call();
     this.lendingPool = await ILendingPool.at(this.lendingPoolAddress);
     this.token = await IToken.at(tokenAddress);
@@ -103,14 +100,13 @@ contract('Aave V2', function ([_, user]) {
     describe('Ether', function () {
       it('normal', async function () {
         const value = ether('10');
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode('depositETH(uint256)', value);
 
         const receipt = await this.proxy.execMock(to, data, {
           from: user,
           value: value,
         });
-
         const handlerReturn = utils.toBN(
           getHandlerReturn(receipt, ['uint256'])[0]
         );
@@ -135,7 +131,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('max amount', async function () {
         const value = ether('10');
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode('depositETH(uint256)', MAX_UINT256);
 
         const receipt = await this.proxy.execMock(to, data, {
@@ -149,7 +145,6 @@ contract('Aave V2', function ([_, user]) {
         expect(
           await this.aWrappedNativeToken.balanceOf.call(user)
         ).to.be.bignumber.eq(handlerReturn);
-
         expect(await balanceProxy.get()).to.be.bignumber.zero;
         expect(
           await this.aWrappedNativeToken.balanceOf.call(this.proxy.address)
@@ -168,8 +163,8 @@ contract('Aave V2', function ([_, user]) {
 
     describe('Token', function () {
       it('normal', async function () {
-        const value = ether('10');
-        const to = this.hAaveV2.address;
+        const value = mwei('10');
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'deposit(address,uint256)',
           this.token.address,
@@ -186,9 +181,11 @@ contract('Aave V2', function ([_, user]) {
           value: ether('0.1'),
         });
 
+        // Get handler return result
         const handlerReturn = utils.toBN(
           getHandlerReturn(receipt, ['uint256'])[0]
         );
+        // Verify handler return
         expect(await this.aToken.balanceOf.call(user)).to.be.bignumber.eq(
           handlerReturn
         );
@@ -203,8 +200,8 @@ contract('Aave V2', function ([_, user]) {
       });
 
       it('max amount', async function () {
-        const value = ether('10');
-        const to = this.hAaveV2.address;
+        const value = mwei('10');
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'deposit(address,uint256)',
           this.token.address,
@@ -220,7 +217,7 @@ contract('Aave V2', function ([_, user]) {
           from: user,
           value: ether('0.1'),
         });
-
+        // Get handler return result
         const handlerReturn = utils.toBN(
           getHandlerReturn(receipt, ['uint256'])[0]
         );
@@ -240,7 +237,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('should revert: unsupported token', async function () {
         const value = ether('10');
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'deposit(address,uint256)',
           this.mockToken.address,
@@ -249,14 +246,14 @@ contract('Aave V2', function ([_, user]) {
         await this.mockToken.transfer(this.proxy.address, value, { from: _ });
         await expectRevert(
           this.proxy.execMock(to, data, { from: user }),
-          'HAaveProtocolV2_General: aToken should not be zero address'
+          '0_HRadiant_General: aToken should not be zero address'
         );
       });
     });
   });
 
   describe('Withdraw', function () {
-    var depositAmount = ether('5');
+    var depositAmount = mwei('5');
 
     describe('Ether', function () {
       beforeEach(async function () {
@@ -280,7 +277,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('partial', async function () {
         const value = depositAmount.div(new BN(2));
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode('withdrawETH(uint256)', value);
         await this.aWrappedNativeToken.transfer(this.proxy.address, value, {
           from: user,
@@ -322,7 +319,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('max amount', async function () {
         const value = depositAmount.div(new BN(2));
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode('withdrawETH(uint256)', MAX_UINT256);
         await this.aWrappedNativeToken.transfer(this.proxy.address, value, {
           from: user,
@@ -387,7 +384,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('partial', async function () {
         const value = depositAmount.div(new BN(2));
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'withdraw(address,uint256)',
           this.token.address,
@@ -435,7 +432,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('max amount', async function () {
         const value = depositAmount.div(new BN(2));
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'withdraw(address,uint256)',
           this.token.address,
@@ -487,7 +484,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('whole', async function () {
         const value = MAX_UINT256;
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'withdraw(address,uint256)',
           this.token.address,
@@ -531,7 +528,7 @@ contract('Aave V2', function ([_, user]) {
 
       it('should revert: not enough balance', async function () {
         const value = depositAmount.add(ether('10'));
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'withdraw(address,uint256)',
           this.token.address,
@@ -547,13 +544,13 @@ contract('Aave V2', function ([_, user]) {
 
         await expectRevert(
           this.proxy.execMock(to, data, { from: user }),
-          'HAaveProtocolV2_withdraw: 5'
+          'HRadiant_withdraw: 5'
         );
       });
 
       it('should revert: unsupported token', async function () {
         const value = depositAmount.add(ether('10'));
-        const to = this.hAaveV2.address;
+        const to = this.hRadiant.address;
         const data = abi.simpleEncode(
           'withdraw(address,uint256)',
           this.mockToken.address,
@@ -562,7 +559,7 @@ contract('Aave V2', function ([_, user]) {
 
         await expectRevert(
           this.proxy.execMock(to, data, { from: user }),
-          'HAaveProtocolV2_General: aToken should not be zero address'
+          '0_HRadiant_General: aToken should not be zero address'
         );
       });
     });

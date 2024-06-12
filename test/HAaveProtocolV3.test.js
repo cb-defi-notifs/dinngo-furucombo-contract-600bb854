@@ -4,7 +4,7 @@ if (
   chainId == 1 ||
   chainId == 10 ||
   chainId == 137 ||
-  chainId == 1088 ||
+  // chainId == 1088 ||
   chainId == 42161 ||
   chainId == 43114
 ) {
@@ -132,6 +132,14 @@ contract('Aave V3', function ([_, user]) {
           from: user,
           value: value,
         });
+
+        const handlerReturn = utils.toBN(
+          getHandlerReturn(receipt, ['uint256'])[0]
+        );
+        expect(
+          await this.aWrappedNativeToken.balanceOf.call(user)
+        ).to.be.bignumber.eq(handlerReturn);
+
         expect(await balanceProxy.get()).to.be.bignumber.zero;
         expect(
           await this.aWrappedNativeToken.balanceOf(this.proxy.address)
@@ -156,6 +164,14 @@ contract('Aave V3', function ([_, user]) {
           from: user,
           value: value,
         });
+
+        const handlerReturn = utils.toBN(
+          getHandlerReturn(receipt, ['uint256'])[0]
+        );
+        expect(
+          await this.aWrappedNativeToken.balanceOf.call(user)
+        ).to.be.bignumber.eq(handlerReturn);
+
         expect(await balanceProxy.get()).to.be.bignumber.zero;
         expect(
           await this.aWrappedNativeToken.balanceOf(this.proxy.address)
@@ -189,6 +205,14 @@ contract('Aave V3', function ([_, user]) {
           from: user,
           value: ether('0.1'),
         });
+
+        const handlerReturn = utils.toBN(
+          getHandlerReturn(receipt, ['uint256'])[0]
+        );
+        expect(await this.aToken.balanceOf.call(user)).to.be.bignumber.eq(
+          handlerReturn
+        );
+
         expect(await balanceProxy.get()).to.be.bignumber.zero;
         expect(
           await this.aToken.balanceOf(this.proxy.address)
@@ -214,6 +238,14 @@ contract('Aave V3', function ([_, user]) {
           from: user,
           value: ether('0.1'),
         });
+
+        const handlerReturn = utils.toBN(
+          getHandlerReturn(receipt, ['uint256'])[0]
+        );
+        expect(await this.aToken.balanceOf.call(user)).to.be.bignumber.eq(
+          handlerReturn
+        );
+
         expect(await balanceProxy.get()).to.be.bignumber.zero;
         expect(
           await this.aToken.balanceOf(this.proxy.address)

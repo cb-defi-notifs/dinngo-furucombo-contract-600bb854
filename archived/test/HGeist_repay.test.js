@@ -1,6 +1,7 @@
 const chainId = network.config.chainId;
-if (chainId == 1 || chainId == 137) {
+if (chainId == 250) {
   // This test supports to run on these chains.
+  return; // skipped because Geist is paused
 } else {
   return;
 }
@@ -18,15 +19,10 @@ const utils = web3.utils;
 const { expect } = require('chai');
 
 const {
-  WETH_TOKEN,
   DAI_TOKEN,
-  ADAI_V2,
-  AAVEPROTOCOL_V2_PROVIDER,
-  AWETH_V2_DEBT_STABLE,
-  AWETH_V2_DEBT_VARIABLE,
+  GEIST_LENDING_POOL_PROVIDER,
   AAVE_RATEMODE,
   WRAPPED_NATIVE_TOKEN,
-  AWRAPPED_NATIVE_V2_DEBT_VARIABLE,
 } = require('./utils/constants');
 const {
   evmRevert,
@@ -37,7 +33,7 @@ const {
   expectEqWithinBps,
 } = require('./utils/utils');
 
-const HAaveV2 = artifacts.require('HAaveProtocolV2');
+const HGeist = artifacts.require('HGeist');
 const FeeRuleRegistry = artifacts.require('FeeRuleRegistry');
 const Registry = artifacts.require('Registry');
 const Proxy = artifacts.require('ProxyMock');
@@ -47,8 +43,7 @@ const ILendingPool = artifacts.require('ILendingPoolV2');
 const IProvider = artifacts.require('ILendingPoolAddressesProviderV2');
 const SimpleToken = artifacts.require('SimpleToken');
 
-contract('Aave V2', function ([_, user]) {
-  const aTokenAddress = ADAI_V2;
+contract('Geist', function ([_, user]) {
   const tokenAddress = DAI_TOKEN;
 
   let id;
@@ -64,19 +59,24 @@ contract('Aave V2', function ([_, user]) {
       this.registry.address,
       this.feeRuleRegistry.address
     );
-    this.hAaveV2 = await HAaveV2.new(
+    this.hGeist = await HGeist.new(
       WRAPPED_NATIVE_TOKEN,
-      AAVEPROTOCOL_V2_PROVIDER
+      GEIST_LENDING_POOL_PROVIDER,
+      0
     );
     await this.registry.register(
-      this.hAaveV2.address,
-      utils.asciiToHex('AaveProtocolV2')
+      this.hGeist.address,
+      utils.asciiToHex('Geist')
     );
-    this.provider = await IProvider.at(AAVEPROTOCOL_V2_PROVIDER);
+    this.provider = await IProvider.at(GEIST_LENDING_POOL_PROVIDER);
     this.lendingPoolAddress = await this.provider.getLendingPool.call();
     this.lendingPool = await ILendingPool.at(this.lendingPoolAddress);
     this.token = await IToken.at(tokenAddress);
-    this.aToken = await IAToken.at(aTokenAddress);
+    this.gToken = await IAToken.at(
+      (
+        await this.lendingPool.getReserveData.call(tokenAddress)
+      ).aTokenAddress
+    );
     this.mockToken = await SimpleToken.new();
   });
 
@@ -90,329 +90,22 @@ contract('Aave V2', function ([_, user]) {
     await evmRevert(id);
   });
 
-  describe('Repay Stable Rate', function () {
-    if (chainId == 1 || chainId == 137) {
-      // Stable Rate borrow is not available on Ethereum and Polygon.
-      return;
-    }
-
-    var depositAmount = ether('10000');
-    const borrowAmount = ether('1');
-    const borrowTokenAddr = WETH_TOKEN;
-    const rateMode = AAVE_RATEMODE.STABLE;
-    const debtTokenAddr =
-      rateMode == AAVE_RATEMODE.STABLE
-        ? AWETH_V2_DEBT_STABLE
-        : AWETH_V2_DEBT_VARIABLE;
-
-    let borrowTokenProvider;
-
-    before(async function () {
-      borrowTokenProvider = await getTokenProvider(borrowTokenAddr);
-
-      this.borrowToken = await IToken.at(borrowTokenAddr);
-      this.debtToken = await IToken.at(debtTokenAddr);
-    });
-
-    beforeEach(async function () {
-      // Deposit
-      await this.token.approve(this.lendingPool.address, depositAmount, {
-        from: providerAddress,
-      });
-      await this.lendingPool.deposit(
-        this.token.address,
-        depositAmount,
-        user,
-        0,
-        { from: providerAddress }
-      );
-      depositAmount = await this.aToken.balanceOf.call(user);
-
-      // Borrow
-      await this.lendingPool.borrow(
-        this.borrowToken.address,
-        borrowAmount,
-        rateMode,
-        0,
-        user,
-        { from: user }
-      );
-
-      expect(await this.borrowToken.balanceOf.call(user)).to.be.bignumber.eq(
-        borrowAmount
-      );
-      expectEqWithinBps(
-        await this.debtToken.balanceOf.call(user),
-        borrowAmount
-      );
-    });
-
-    it('partial', async function () {
-      const value = borrowAmount.div(new BN('2'));
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'repay(address,uint256,uint256,address)',
-        this.borrowToken.address,
-        value,
-        rateMode,
-        user
-      );
-      await this.borrowToken.transfer(this.proxy.address, value, {
-        from: user,
-      });
-      await this.proxy.updateTokenMock(this.borrowToken.address);
-      await balanceUser.get();
-
-      const receipt = await this.proxy.execMock(to, data, {
-        from: user,
-        value: ether('0.1'),
-      });
-
-      // Get handler return result
-      const handlerReturn = utils.toBN(
-        getHandlerReturn(receipt, ['uint256'])[0]
-      );
-      const borrowTokenUserAfter = await this.borrowToken.balanceOf.call(user);
-      const debtTokenUserAfter = await this.debtToken.balanceOf.call(user);
-      const interestMax = borrowAmount.mul(new BN(1)).div(new BN(10000));
-
-      // Verify handler return
-      expect(handlerReturn).to.be.bignumber.gte(borrowAmount.sub(value));
-      expect(handlerReturn).to.be.bignumber.lt(
-        borrowAmount.sub(value).add(interestMax)
-      );
-      // Verify proxy balance
-      expect(
-        await this.borrowToken.balanceOf.call(this.proxy.address)
-      ).to.be.bignumber.zero;
-      // Verify user balance
-      // (borrow - repay - 1) <= debtTokenUserAfter < (borrow + interestMax - repay)
-      expect(debtTokenUserAfter).to.be.bignumber.gte(
-        borrowAmount.sub(value).sub(new BN(1))
-      );
-      expect(debtTokenUserAfter).to.be.bignumber.lt(
-        borrowAmount.add(interestMax).sub(value)
-      );
-      expect(borrowTokenUserAfter).to.be.bignumber.eq(borrowAmount.sub(value));
-      expect(await balanceUser.delta()).to.be.bignumber.eq(ether('0'));
-      profileGas(receipt);
-    });
-
-    it('partial by ETH', async function () {
-      const value = borrowAmount.div(new BN('2'));
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'repayETH(uint256,uint256,address)',
-        value,
-        rateMode,
-        user
-      );
-      await balanceUser.get();
-
-      const debtTokenUserBefore = await this.debtToken.balanceOf.call(user);
-      const receipt = await this.proxy.execMock(to, data, {
-        from: user,
-        value: value,
-      });
-
-      // Get handler return result
-      const handlerReturn = utils.toBN(
-        getHandlerReturn(receipt, ['uint256'])[0]
-      );
-      const debtTokenUserAfter = await this.debtToken.balanceOf.call(user);
-      const interestMax = borrowAmount.mul(new BN(1)).div(new BN(10000));
-
-      // Verify handler return
-      expect(handlerReturn).to.be.bignumber.gte(borrowAmount.sub(value));
-      expect(handlerReturn).to.be.bignumber.lt(
-        borrowAmount.sub(value).add(interestMax)
-      );
-      // Verify proxy balance
-      expect(
-        await this.borrowToken.balanceOf.call(this.proxy.address)
-      ).to.be.bignumber.zero;
-      // Verify user balance
-      // (borrow - repay - 1) <= debtTokenUserAfter < (borrow + interestMax - repay)
-      expect(debtTokenUserAfter).to.be.bignumber.gte(
-        borrowAmount.sub(value).sub(new BN(1))
-      );
-      expect(debtTokenUserAfter).to.be.bignumber.lt(
-        borrowAmount.add(interestMax).sub(value)
-      );
-      expect(await balanceUser.delta()).to.be.bignumber.eq(
-        ether('0').sub(value)
-      );
-      profileGas(receipt);
-    });
-
-    it('whole', async function () {
-      const extraNeed = ether('1');
-      const value = borrowAmount.add(extraNeed);
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'repay(address,uint256,uint256,address)',
-        this.borrowToken.address,
-        value,
-        rateMode,
-        user
-      );
-      await this.borrowToken.transfer(user, extraNeed, {
-        from: borrowTokenProvider,
-      });
-      await this.borrowToken.transfer(this.proxy.address, value, {
-        from: user,
-      });
-      await this.proxy.updateTokenMock(this.borrowToken.address);
-      await balanceUser.get();
-
-      const receipt = await this.proxy.execMock(to, data, {
-        from: user,
-        value: ether('0.1'),
-      });
-
-      // Get handler return result
-      const handlerReturn = utils.toBN(
-        getHandlerReturn(receipt, ['uint256'])[0]
-      );
-      const borrowTokenUserAfter = await this.borrowToken.balanceOf.call(user);
-      const debtTokenUserAfter = await this.debtToken.balanceOf.call(user);
-      const interestMax = borrowAmount.mul(new BN(1)).div(new BN(10000));
-
-      // Verify handler return
-      expect(handlerReturn).to.be.bignumber.zero;
-      // Verify proxy balance
-      expect(
-        await this.borrowToken.balanceOf.call(this.proxy.address)
-      ).to.be.bignumber.zero;
-      // Verify user balance
-      expect(debtTokenUserAfter).to.be.bignumber.zero;
-      // (repay - borrow - interestMax) < borrowTokenUserAfter <= (repay - borrow)
-      expect(borrowTokenUserAfter).to.be.bignumber.lte(value.sub(borrowAmount));
-      expect(borrowTokenUserAfter).to.be.bignumber.gt(
-        value.sub(borrowAmount).sub(interestMax)
-      );
-      expect(await balanceUser.delta()).to.be.bignumber.eq(ether('0'));
-      profileGas(receipt);
-    });
-
-    it('whole by ETH', async function () {
-      const extraNeed = ether('1');
-      const value = borrowAmount.add(extraNeed);
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'repayETH(uint256,uint256,address)',
-        value,
-        rateMode,
-        user
-      );
-      await balanceUser.get();
-
-      const receipt = await this.proxy.execMock(to, data, {
-        from: user,
-        value: value,
-      });
-
-      // Get handler return result
-      const handlerReturn = utils.toBN(
-        getHandlerReturn(receipt, ['uint256'])[0]
-      );
-      const debtTokenUserAfter = await this.debtToken.balanceOf.call(user);
-      const interestMax = borrowAmount.mul(new BN(1)).div(new BN(10000));
-
-      // Verify handler return
-      expect(handlerReturn).to.be.bignumber.zero;
-      // Verify proxy balance
-      expect(
-        await this.borrowToken.balanceOf.call(this.proxy.address)
-      ).to.be.bignumber.zero;
-      // Verify user balance
-      expect(debtTokenUserAfter).to.be.bignumber.zero;
-      // (repay - borrow - interestMax) < borrowTokenUserAfter <= (repay - borrow)
-      expect(await balanceUser.delta()).to.be.bignumber.lte(
-        ether('0').sub(borrowAmount)
-      );
-      expect(await balanceUser.delta()).to.be.bignumber.gt(
-        ether('0').sub(borrowAmount).sub(interestMax)
-      );
-      profileGas(receipt);
-    });
-
-    it('should revert: not enough balance', async function () {
-      const value = ether('0.5');
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'repay(address,uint256,uint256,address)',
-        this.borrowToken.address,
-        value,
-        rateMode,
-        user
-      );
-      await this.borrowToken.transfer(
-        this.proxy.address,
-        value.sub(ether('0.1')),
-        { from: user }
-      );
-      await this.proxy.updateTokenMock(this.borrowToken.address);
-      await expectRevert(
-        this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_repay: SafeERC20: low-level call failed'
-      );
-    });
-
-    it('should revert: unsupported token', async function () {
-      const value = ether('0.5');
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'repay(address,uint256,uint256,address)',
-        this.mockToken.address,
-        value,
-        rateMode,
-        user
-      );
-      await this.mockToken.transfer(this.proxy.address, value, { from: _ });
-      await this.proxy.updateTokenMock(this.mockToken.address);
-      await expectRevert(
-        this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_repay: Unspecified'
-      );
-    });
-
-    it('should revert: wrong rate mode', async function () {
-      const value = ether('0.5');
-      const to = this.hAaveV2.address;
-      const unborrowedRateMode = (rateMode % 2) + 1;
-      const data = abi.simpleEncode(
-        'repay(address,uint256,uint256,address)',
-        this.borrowToken.address,
-        value,
-        unborrowedRateMode,
-        user
-      );
-      await this.borrowToken.transfer(this.proxy.address, value, {
-        from: user,
-      });
-      await this.proxy.updateTokenMock(this.borrowToken.address);
-      await expectRevert(
-        this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_repay: 15'
-      );
-    });
-  });
-
   describe('Repay Variable Rate', function () {
     var depositAmount = ether('10000');
     const borrowAmount = ether('1');
     const borrowTokenAddr = WRAPPED_NATIVE_TOKEN;
     const rateMode = AAVE_RATEMODE.VARIABLE;
-    const debtTokenAddr = AWRAPPED_NATIVE_V2_DEBT_VARIABLE;
 
     let borrowTokenProvider;
-
     before(async function () {
       borrowTokenProvider = await getTokenProvider(borrowTokenAddr);
 
       this.borrowToken = await IToken.at(borrowTokenAddr);
-      this.debtToken = await IToken.at(debtTokenAddr);
+      this.debtToken = await IToken.at(
+        (
+          await this.lendingPool.getReserveData.call(borrowTokenAddr)
+        ).variableDebtTokenAddress
+      );
     });
 
     beforeEach(async function () {
@@ -427,7 +120,7 @@ contract('Aave V2', function ([_, user]) {
         0,
         { from: providerAddress }
       );
-      depositAmount = await this.aToken.balanceOf.call(user);
+      depositAmount = await this.gToken.balanceOf.call(user);
 
       // Borrow
       await this.lendingPool.borrow(
@@ -450,7 +143,7 @@ contract('Aave V2', function ([_, user]) {
 
     it('partial', async function () {
       const value = borrowAmount.div(new BN('2'));
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.borrowToken.address,
@@ -506,7 +199,7 @@ contract('Aave V2', function ([_, user]) {
 
     it('partial by ETH', async function () {
       const value = borrowAmount.div(new BN('2'));
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const data = abi.simpleEncode(
         'repayETH(uint256,uint256,address)',
         value,
@@ -557,7 +250,7 @@ contract('Aave V2', function ([_, user]) {
     it('whole', async function () {
       const extraNeed = ether('1');
       const value = borrowAmount.add(extraNeed);
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.borrowToken.address,
@@ -607,7 +300,7 @@ contract('Aave V2', function ([_, user]) {
     it('whole by ETH', async function () {
       const extraNeed = ether('1');
       const value = borrowAmount.add(extraNeed);
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const data = abi.simpleEncode(
         'repayETH(uint256,uint256,address)',
         value,
@@ -648,7 +341,7 @@ contract('Aave V2', function ([_, user]) {
 
     it('should revert: not enough balance', async function () {
       const value = ether('0.5');
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.borrowToken.address,
@@ -664,13 +357,13 @@ contract('Aave V2', function ([_, user]) {
       await this.proxy.updateTokenMock(this.borrowToken.address);
       await expectRevert(
         this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_repay: SafeERC20: low-level call failed'
+        'HGeist_repay: SafeERC20: low-level call failed'
       );
     });
 
     it('should revert: unsupported token', async function () {
       const value = ether('0.5');
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
         this.mockToken.address,
@@ -682,13 +375,13 @@ contract('Aave V2', function ([_, user]) {
       await this.proxy.updateTokenMock(this.mockToken.address);
       await expectRevert(
         this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_repay: Unspecified'
+        'HGeist_repay: Unspecified'
       );
     });
 
     it('should revert: wrong rate mode', async function () {
       const value = ether('0.5');
-      const to = this.hAaveV2.address;
+      const to = this.hGeist.address;
       const unborrowedRateMode = (rateMode % 2) + 1;
       const data = abi.simpleEncode(
         'repay(address,uint256,uint256,address)',
@@ -703,7 +396,7 @@ contract('Aave V2', function ([_, user]) {
       await this.proxy.updateTokenMock(this.borrowToken.address);
       await expectRevert(
         this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_repay: 15'
+        'HGeist_repay: 15'
       );
     });
   });

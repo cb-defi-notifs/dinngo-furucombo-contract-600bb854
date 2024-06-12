@@ -167,6 +167,8 @@ function getBalanceSlotNum(token, chainId) {
       return getDAISlotNum(chainId);
     case 'USDC':
       return getUSDCSlotNum(chainId);
+    case 'USDC-LZ':
+      return getUSDCLZSlotNum(chainId);
     case 'USDT':
       return getUSDTSlotNum(chainId);
     case 'LINK':
@@ -187,6 +189,15 @@ function getDAISlotNum(chainId) {
     case 250:
     case 42161:
       return 2;
+    default:
+      return 0;
+  }
+}
+
+function getUSDCLZSlotNum(chainId) {
+  switch (chainId) {
+    case 250:
+      return 7;
     default:
       return 0;
   }
@@ -239,6 +250,10 @@ function getWETHSlotNum(chainId) {
     case 1:
     case 10:
       return 3;
+    case 137:
+    case 1088:
+    case 43114:
+      return 0;
     case 250:
       return 2;
     case 42161:
@@ -460,6 +475,7 @@ async function callExternalApi(
   request,
   method = 'get',
   body = '',
+  apiKey = '',
   retryTimes = 5
 ) {
   let resp;
@@ -467,7 +483,12 @@ async function callExternalApi(
   while (tryTimes > 0) {
     tryTimes--;
     if (method === 'get') {
-      resp = await fetch(request);
+      resp = await fetch(request, {
+        method: method,
+        headers: {
+          Authorization: apiKey,
+        },
+      });
     } else {
       resp = await fetch(request, {
         method: method,

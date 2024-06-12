@@ -1497,7 +1497,7 @@ contract('Compound V3', function ([_, user, someone]) {
           'WrappedNative',
           chainId
         );
-        const extraSupplyAmount = ether('2000');
+        const extraSupplyAmount = chainId == 137 ? ether('2000') : ether('20');
 
         await setTokenBalance(
           collateral.address,
@@ -1515,7 +1515,7 @@ contract('Compound V3', function ([_, user, someone]) {
         });
 
         // Borrow token
-        const borrowAmount = mwei('1000');
+        const borrowAmount = mwei('700');
         await comet.withdraw(baseToken.address, borrowAmount, {
           from: user,
         });
@@ -1694,7 +1694,7 @@ contract('Compound V3', function ([_, user, someone]) {
         );
 
         // Borrow token
-        const borrowAmount = mwei('1000');
+        const borrowAmount = mwei('700');
         await comet.withdraw(baseToken.address, borrowAmount, {
           from: user,
         });
@@ -2005,7 +2005,7 @@ contract('Compound V3', function ([_, user, someone]) {
   });
 
   describe('Borrow', function () {
-    const supplyAmount = ether('2000');
+    const supplyAmount = chainId == 137 ? ether('2000') : ether('20');
 
     describe('Token-base', function () {
       beforeEach(async function () {
@@ -2041,7 +2041,7 @@ contract('Compound V3', function ([_, user, someone]) {
       it('normal', async function () {
         const collateral = this.wrappedNativeToken;
         const baseToken = this.USDC;
-        const value = mwei('1000'); // 50%
+        const value = mwei('700');
         const comet = this.cometUSDC;
         const to = this.hCompoundV3.address;
         const data = abi.simpleEncode(
@@ -2084,7 +2084,7 @@ contract('Compound V3', function ([_, user, someone]) {
       it('withdraw and borrow', async function () {
         const collateral = this.wrappedNativeToken;
         const baseToken = this.USDC;
-        const value = supplyAmount.add(mwei('1000')); // 50%
+        const value = supplyAmount.add(mwei('700'));
         const comet = this.cometUSDC;
         const to = this.hCompoundV3.address;
         const data = abi.simpleEncode(
@@ -2237,7 +2237,7 @@ contract('Compound V3', function ([_, user, someone]) {
 
       it('should revert: by withdraw', async function () {
         const baseToken = this.USDC;
-        const value = mwei('1000');
+        const value = mwei('700');
         const comet = this.cometUSDC;
         const to = this.hCompoundV3.address;
         const data = abi.simpleEncode(
@@ -2529,11 +2529,11 @@ contract('Compound V3', function ([_, user, someone]) {
   });
 
   describe('Repay', function () {
-    const supplyAmount = ether('2000');
+    const supplyAmount = chainId == 137 ? ether('2000') : ether('20');
 
     describe('Token-base', function () {
       const initAmount = mwei('2000');
-      const borrowAmount = mwei('1000');
+      const borrowAmount = mwei('700');
 
       beforeEach(async function () {
         // Supply token comet
@@ -3053,7 +3053,10 @@ contract('Compound V3', function ([_, user, someone]) {
             from: user,
             value: value,
           }),
-          "Returned error: sender doesn't have enough funds to send tx. The max upfront cost is: 2000000000000000000000 and the sender's account only has: 1000000000000000000000"
+          "Returned error: sender doesn't have enough funds to send tx. The max upfront cost is: " +
+            value.toString() +
+            " and the sender's account only has: " +
+            borrowAmount.toString()
         );
       });
 

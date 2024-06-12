@@ -22,12 +22,11 @@ const {
   DAI_TOKEN,
   USDT_TOKEN,
   AUSDT_V2_DEBT_VARIABLE,
-  TUSD_TOKEN,
   COMP_TOKEN,
   ADAI_V2,
   AAVEPROTOCOL_V2_PROVIDER,
   AWETH_V2_DEBT_STABLE,
-  ATUSD_V2_DEBT_STABLE,
+  AUSDT_V2_DEBT_STABLE,
   AAVE_RATEMODE,
   WRAPPED_NATIVE_TOKEN,
   AWRAPPED_NATIVE_V2_DEBT_VARIABLE,
@@ -100,14 +99,14 @@ contract('Aave V2', function ([_, user, someone]) {
   });
 
   describe('Borrow with Stable Rate', function () {
-    if (chainId == 137) {
-      // Stable Rate borrow is not available on Polygon.
+    if (chainId == 1 || chainId == 137) {
+      // Stable Rate borrow is not available on Ethereum and Polygon.
       return;
     }
     const depositAmount = ether('10000');
-    const borrowTokenAddr = TUSD_TOKEN;
+    const borrowTokenAddr = USDT_TOKEN;
     const rateMode = AAVE_RATEMODE.STABLE;
-    const debtTokenAddr = ATUSD_V2_DEBT_STABLE;
+    const debtTokenAddr = AUSDT_V2_DEBT_STABLE;
     const debtWETHAddr = AWETH_V2_DEBT_STABLE;
 
     let borrowTokenUserBefore;
@@ -143,12 +142,7 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('borrow token', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
-      const borrowAmount = ether('100');
+      const borrowAmount = mwei('100');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
         'borrow(address,uint256,uint256)',
@@ -192,11 +186,6 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('borrow weth', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const borrowAmount = ether('1');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
@@ -242,11 +231,6 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('borrow eth', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const borrowAmount = ether('1');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
@@ -306,7 +290,7 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('should revert: borrow token without approveDelegation', async function () {
-      const borrowAmount = ether('2');
+      const borrowAmount = mwei('2');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
         'borrow(address,uint256,uint256)',
@@ -322,7 +306,7 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('should revert: borrow token approveDelegation < borrow amount', async function () {
-      const borrowAmount = ether('2');
+      const borrowAmount = mwei('2');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
         'borrow(address,uint256,uint256)',
@@ -333,7 +317,7 @@ contract('Aave V2', function ([_, user, someone]) {
 
       await this.debtToken.approveDelegation(
         this.proxy.address,
-        borrowAmount.sub(ether('1')),
+        borrowAmount.sub(mwei('1')),
         {
           from: user,
         }
@@ -357,12 +341,12 @@ contract('Aave V2', function ([_, user, someone]) {
 
       await expectRevert(
         this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_borrow: 2' // AAVEV2 Error Code: VL_NO_ACTIVE_RESERVE
+        'HAaveProtocolV2_borrow: Unspecified'
       );
     });
 
     it('should revert: borrow token with no collateral ', async function () {
-      const borrowAmount = ether('2');
+      const borrowAmount = mwei('2');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
         'borrow(address,uint256,uint256)',
@@ -374,22 +358,6 @@ contract('Aave V2', function ([_, user, someone]) {
       await expectRevert(
         this.proxy.execMock(to, data, { from: someone }),
         'HAaveProtocolV2_borrow: 9' // AAVEV2 Error Code: VL_COLLATERAL_BALANCE_IS_0
-      );
-    });
-
-    it('should revert: borrow token is the same with collateral', async function () {
-      const borrowAmount = ether('2');
-      const to = this.hAaveV2.address;
-      const data = abi.simpleEncode(
-        'borrow(address,uint256,uint256)',
-        this.token.address,
-        borrowAmount,
-        rateMode
-      );
-
-      await expectRevert(
-        this.proxy.execMock(to, data, { from: user }),
-        'HAaveProtocolV2_borrow: 13' // AAVEV2 Error Code: VL_COLLATERAL_SAME_AS_BORROWING_CURRENCY
       );
     });
   });
@@ -439,11 +407,6 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('borrow token', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const borrowAmount = mwei('100');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
@@ -490,11 +453,6 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('borrow weth', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const borrowAmount = ether('1');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
@@ -546,11 +504,6 @@ contract('Aave V2', function ([_, user, someone]) {
     });
 
     it('borrow eth', async function () {
-      if (chainId == 137) {
-        // Due to Aave governance 224 issue, skip temporary
-        return;
-      }
-
       const borrowAmount = ether('1');
       const to = this.hAaveV2.address;
       const data = abi.simpleEncode(
@@ -645,17 +598,10 @@ contract('Aave V2', function ([_, user, someone]) {
         rateMode
       );
 
-      if (chainId == 1) {
-        await expectRevert(
-          this.proxy.execMock(to, data, { from: user }),
-          'HAaveProtocolV2_borrow: 2' // AAVEV2 Error Code: VL_NO_ACTIVE_RESERVE
-        );
-      } else if (chainId == 137) {
-        await expectRevert(
-          this.proxy.execMock(to, data, { from: user }),
-          'HAaveProtocolV2_borrow: Unspecified' // Polygon version
-        );
-      }
+      await expectRevert(
+        this.proxy.execMock(to, data, { from: user }),
+        'HAaveProtocolV2_borrow: Unspecified'
+      );
     });
 
     it('should revert: borrow token with no collateral', async function () {

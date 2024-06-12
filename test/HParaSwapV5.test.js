@@ -3,7 +3,7 @@ if (
   chainId == 1 ||
   chainId == 10 ||
   chainId == 137 ||
-  chainId == 250 ||
+  // chainId == 250 || // Skip due to frequent error reports from the ParaSwap API on Fantom
   chainId == 42161 ||
   chainId == 43114
 ) {
